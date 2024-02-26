@@ -2,6 +2,7 @@
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
@@ -13,11 +14,11 @@ import java.util.stream.Collectors;
 
 
 public class Main {
-    //private static final String FILE = "input_o.txt";
-    private static final String FILE = "/home/habib/Downloads/input.txt";
+    private static final String FILE = "input_o.txt";
+   //private static final String FILE = "/home/habib/Downloads/input.txt";
     //private static final String FILE = "input_from_git.txt";
     private static final int MIN_TEMP = -999;
-    private static final int MAX_TEMP = 999;
+    private static final int MAX_TEMP = 99900;
     private static final int MAX_NAME_LENGTH = 100;
     private static final int MAX_CITIES = 101;
     private static final int SEGMENT_SIZE = 1 << 21;
@@ -138,14 +139,15 @@ public class Main {
 
         long segmentEnd = nextNewLine(mappedByteBuffer, (long) mappedByteBuffer.limit() - 1);
         long segmentStart = mappedByteBuffer.position();
-
-        long dist = (segmentEnd - segmentStart) / 3;
+        long segmentLength = segmentEnd - segmentStart;
+        boolean split = segmentLength > 100;
+        long dist = segmentLength / 3;
         long midPoint1 = nextNewLine(mappedByteBuffer, segmentStart + dist);
         long midPoint2 = nextNewLine(mappedByteBuffer, segmentStart + dist + dist);
 
-        Scanner scanner1 = new Scanner(mappedByteBuffer, segmentStart, midPoint1);
-        Scanner scanner2 = new Scanner(mappedByteBuffer, midPoint1 + 1, midPoint2);
-        Scanner scanner3 = new Scanner(mappedByteBuffer, midPoint2 + 1, segmentEnd);
+        Scanner scanner1 = new Scanner(mappedByteBuffer, segmentStart, split ? midPoint1 : segmentEnd);
+        Scanner scanner2 = new Scanner(mappedByteBuffer, split ? midPoint1 + 1 : segmentEnd, split ? midPoint2 : segmentEnd);
+        Scanner scanner3 = new Scanner(mappedByteBuffer, split ? midPoint2 + 1 : segmentEnd, segmentEnd);
         while (true) {
             if (!scanner1.hasNext()) {
                 break;
@@ -487,22 +489,18 @@ public class Main {
         }
 
         long getLongAt(long pos) {
-            long fileEnd = mappedByteBuffer.limit();
-            if (fileEnd - pos <= 0) {
+            int fileEnd = mappedByteBuffer.limit();
+            long numberOfByteBeforeEnd = fileEnd - pos;//TODO change all to int
+            if (numberOfByteBeforeEnd <= 0) {
                 return Long.MIN_VALUE;
             }
-            if (fileEnd - pos >= 8) {
+            if (numberOfByteBeforeEnd >= 8) {
                 return mappedByteBuffer.getLong((int) pos);
             }
-            if (fileEnd - pos >= 4) {
-                return mappedByteBuffer.getInt((int) pos);
-            }
-            if (fileEnd - pos >= 2) {
-                return mappedByteBuffer.getChar((int) pos);
-            }
-            byte[] dst = new byte[1];
-            mappedByteBuffer.get((int) pos, dst, 0, 1);
-            return dst[0];
+            int length = (int) numberOfByteBeforeEnd;
+            byte[] dst = new byte[length];
+            mappedByteBuffer.get((int) pos, dst, 0, length);
+            return new BigInteger(dst).longValue();
         }
 
         byte getByteAt(long pos) {
