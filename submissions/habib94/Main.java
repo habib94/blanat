@@ -2,12 +2,10 @@
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -15,7 +13,7 @@ import java.util.stream.Collectors;
 
 public class Main {
     //private static final String FILE = "input_o.txt";
-   private static final String FILE = "/home/habib/Downloads/input.txt";
+  private static final String FILE = "/home/habib/Downloads/input.txt";
     //private static final String FILE = "input_from_git.txt";
     private static final int MIN_TEMP = -999;
     private static final int MAX_TEMP = 99900;
@@ -28,7 +26,7 @@ public class Main {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         long start = System.currentTimeMillis();
-        process(args);
+        process(args,start);
         long end = System.currentTimeMillis();
         System.out.println("end = " + (end - start));
     }
@@ -37,7 +35,8 @@ public class Main {
         var file = new RandomAccessFile(FILE, "r");
         var fileChannel = file.getChannel();
         var fileSize = fileChannel.size();
-        var chunkSize = Math.min(Integer.MAX_VALUE - 512, fileSize / Runtime.getRuntime().availableProcessors());
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        var chunkSize = Math.min(Integer.MAX_VALUE - 512, fileSize / availableProcessors);
         if (chunkSize <= 0) {
             chunkSize = fileSize;
         }
@@ -63,8 +62,12 @@ public class Main {
         return chunks;
     }
 
-    public static void process(String[] args) throws IOException, InterruptedException {
+    public static void process(String[] args, long start) throws IOException, InterruptedException {
         List<MappedByteBuffer> chunks = buildChunks();
+
+        long end = System.currentTimeMillis();
+        System.out.println("build chanks = " + (end - start) + ";" + chunks.size());
+
         Thread[] threads = new Thread[chunks.size()];
         List<CityResult>[] cityResuls = new List[chunks.size()];
         List<ProductResult>[] productsResuls = new List[chunks.size()];
@@ -137,17 +140,17 @@ public class Main {
         CityResult[] cityResults = new CityResult[HASH_TABLE_SIZE];
         ProductResult[] productResults = new ProductResult[HASH_TABLE_SIZE];
 
-        long segmentEnd = nextNewLine(mappedByteBuffer, (long) mappedByteBuffer.limit() - 1);
-        long segmentStart = mappedByteBuffer.position();
-        long segmentLength = segmentEnd - segmentStart;
+        int segmentEnd = nextNewLine(mappedByteBuffer, mappedByteBuffer.limit() - 1);
+        int segmentStart = mappedByteBuffer.position();
+        int segmentLength = segmentEnd - segmentStart;
         boolean split = segmentLength > 100;
-        long dist = segmentLength / 3;
-        long midPoint1 = nextNewLine(mappedByteBuffer, segmentStart + dist);
-        long midPoint2 = nextNewLine(mappedByteBuffer, segmentStart + dist + dist);
+        int dist = segmentLength / 3;
+        int midPoint1 = split ? nextNewLine(mappedByteBuffer, segmentStart + dist) : segmentEnd;
+        int midPoint2 = split ? nextNewLine(mappedByteBuffer, segmentStart + dist + dist) : segmentEnd;
 
-        Scanner scanner1 = new Scanner(mappedByteBuffer, segmentStart, split ? midPoint1 : segmentEnd);
-        Scanner scanner2 = new Scanner(mappedByteBuffer, split ? midPoint1 + 1 : segmentEnd, split ? midPoint2 : segmentEnd);
-        Scanner scanner3 = new Scanner(mappedByteBuffer, split ? midPoint2 + 1 : segmentEnd, segmentEnd);
+        Scanner scanner1 = new Scanner(mappedByteBuffer, segmentStart, midPoint1);
+        Scanner scanner2 = new Scanner(mappedByteBuffer, midPoint1 + 1 , midPoint2);
+        Scanner scanner3 = new Scanner(mappedByteBuffer, midPoint2 + 1 , segmentEnd);
         while (true) {
             if (!scanner1.hasNext()) {
                 break;
@@ -180,139 +183,36 @@ public class Main {
                                               CityResult[] cityResults,
                                               List<ProductResult> collectedProductResults,
                                               ProductResult[] productResults, MappedByteBuffer mappedByteBuffer) {
-        BytesName cityBytesName = BytesName.parse(scanner);
-        CityResult cityResult = findResult(cityBytesName, scanner, cityResults, (nameAddress, tableIndex, nameLength) ->
-                newCityEntry(cityResults, nameAddress, tableIndex, nameLength, scanner, collectedCityResults, mappedByteBuffer)
-        );
-        scanner.add(1);
-        BytesName productBytesName = BytesName.parse(scanner);
-        ProductResult productResult = findResult(productBytesName, scanner, productResults, (nameAddress, tableIndex, nameLength) ->
-                newProductEntry(productResults, nameAddress, tableIndex, nameLength, scanner, collectedProductResults, mappedByteBuffer)
-        );
+        long start = System.nanoTime();
+        FindSeparatorResult citySeparatorResult = scanner.nextSeparator();
+        int cityIndex = hashToIndex(citySeparatorResult.hash);
+        CityResult cityResult = cityResults[cityIndex];
+        if(cityResult == null){
+            cityResult = newCityEntry(cityResults, citySeparatorResult.nameAddress, cityIndex, citySeparatorResult.nameLength, scanner, collectedCityResults, mappedByteBuffer);
+        }
+        scanner.addToPos(1);
+        FindSeparatorResult productSeparatorResult = scanner.nextSeparator();
+        int productIndex = hashToIndex(productSeparatorResult.hash);
+        ProductResult productResult = productResults[productIndex];
+        if(productResult == null){
+            productResult = newProductEntry(productResults, productSeparatorResult.nameAddress, cityIndex, productSeparatorResult.nameLength, scanner, collectedProductResults, mappedByteBuffer);
+        }
         long number = scanNumber(scanner);
         cityResult.sum += number;
         if (productResult.min > number) {
             productResult.min = number;
         }
+        long end = System.nanoTime();
+       // System.out.println("end parse = " + (end - start));
     }
 
     private static final long[] MASK1 = new long[]{0xFFL, 0xFFFFL, 0xFFFFFFL, 0xFFFFFFFFL, 0xFFFFFFFFFFL, 0xFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFFFL,
             0xFFFFFFFFFFFFFFFFL};
     private static final long[] MASK2 = new long[]{0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0xFFFFFFFFFFFFFFFFL};
 
-    private static final class BytesName {
-        long initialWord, initialDelimiterMask, wordB, delimiterMaskB, hash, word, word2, mask;
-        int letterCount1, letterCount2;
-
-        private static BytesName parse(Scanner scanner) {
-            long word = scanner.getLong();
-            long pos = findDelimiter(word);
-            long wordB = scanner.getLongAt(scanner.pos() + 8);
-            long posB = findDelimiter(wordB);
-            return new BytesName(word, pos, wordB, posB);
-        }
-
-        public BytesName(long initialWord, long initialDelimiterMask, long wordB, long delimiterMaskB) {
-            this.initialWord = initialWord;
-            this.initialDelimiterMask = initialDelimiterMask;
-            this.wordB = wordB;
-            this.delimiterMaskB = delimiterMaskB;
-
-            word = initialWord;
-            word2 = wordB;
-            long delimiterMask = initialDelimiterMask;
-            long delimiterMask2 = delimiterMaskB;
-            if ((delimiterMask | delimiterMask2) != 0) {
-                letterCount1 = Long.numberOfTrailingZeros(delimiterMask) >>> 3; // value between 1 and 8
-                letterCount2 = Long.numberOfTrailingZeros(delimiterMask2) >>> 3; // value between 0 and 8
-                mask = MASK2[letterCount1];
-                word = word & MASK1[letterCount1];
-                word2 = mask & word2 & MASK1[letterCount2];
-                hash = word ^ word2;
-            }
-        }
-
-        public boolean test(long firstNameWord, long secondNameWord) {
-            return firstNameWord == word && secondNameWord == word2;
-        }
-
-        public long scannerAdd() {
-            return letterCount1 + (letterCount2 & mask);
-        }
-    }
 
 
-    private static <T extends Result> T findResult(BytesName bytesName,
-                                                   Scanner scanner,
-                                                   T[] results,
-                                                   NewResultFunction newResultFunction) {
-        T existingCityResult;
-        long word = bytesName.initialWord;
-        long delimiterMask = bytesName.initialDelimiterMask;
-        long hash;
-        long nameAddress = scanner.pos();
-        long word2 = bytesName.wordB;
-        long delimiterMask2 = bytesName.delimiterMaskB;
-        if ((delimiterMask | delimiterMask2) != 0) {
-            hash = bytesName.hash;
-            existingCityResult = results[hashToIndex(hash)];
-            scanner.add(bytesName.scannerAdd());
-            if (existingCityResult != null && bytesName.test(existingCityResult.firstNameWord, existingCityResult.secondNameWord)) {
-                return existingCityResult;
-            }
-        } else {
-            // Slow-path for when the delimiter could not be found in the first 16 bytes.
-            hash = word ^ word2;
-            scanner.add(16);
-            while (true) {
-                word = scanner.getLong();
-                delimiterMask = findDelimiter(word);
-                if (delimiterMask != 0) {
-                    int trailingZeros = Long.numberOfTrailingZeros(delimiterMask);
-                    word = (word << (63 - trailingZeros));
-                    scanner.add(trailingZeros >>> 3);
-                    hash ^= word;
-                    break;
-                } else {
-                    scanner.add(8);
-                    hash ^= word;
-                }
-            }
-        }
-
-        // Save length of name for later.
-        int nameLength = (int) (scanner.pos() - nameAddress);
-
-        // Final calculation for index into hash table.
-        int tableIndex = hashToIndex(hash);
-        outer:
-        while (true) {
-            existingCityResult = results[tableIndex];
-            if (existingCityResult == null) {
-                existingCityResult = (T) newResultFunction.create(nameAddress, tableIndex, nameLength);
-            }
-            // Check for collision.
-            int i = 0;
-            for (; i < nameLength + 1 - 8; i += 8) {
-                if (scanner.getLongAt(existingCityResult.nameAddress + i) != scanner.getLongAt(nameAddress + i)) {
-                    // Collision error, try next.
-                    tableIndex = (tableIndex + 31) & (results.length - 1);
-                    continue outer;
-                }
-            }
-
-            int remainingShift = (64 - ((nameLength + 1 - i) << 3));
-            if (((scanner.getLongAt(existingCityResult.nameAddress + i) ^ (scanner.getLongAt(nameAddress + i))) << remainingShift) == 0) {
-                break;
-            } else {
-                // Collision error, try next.
-                tableIndex = (tableIndex + 31) & (results.length - 1);
-            }
-        }
-        return existingCityResult;
-    }
-
-    private static long nextNewLine(MappedByteBuffer mappedByteBuffer, long prev) {
+    private static int nextNewLine(MappedByteBuffer mappedByteBuffer, int prev) {
         while (true) {
             long currentWord = new Scanner(mappedByteBuffer, prev, prev + 8).getLong();
             long input = currentWord ^ 0x0A0A0A0A0A0A0A0AL;
@@ -331,7 +231,7 @@ public class Main {
         long numberWord = scanPtr.getLongAt(scanPtr.pos() + 1);
         int decimalSepPos = Long.numberOfTrailingZeros(~numberWord & 0x10101000L);
         long number = convertIntoNumber(decimalSepPos, numberWord);
-        scanPtr.add((decimalSepPos >>> 3) + 4);
+        scanPtr.addToPos((decimalSepPos >>> 3) + 4);
         return number;
     }
 
@@ -342,15 +242,7 @@ public class Main {
 
     // Special method to convert a number in the ascii number into an int without branches created by Quan Anh Mai.
     private static long convertIntoNumber(int decimalSepPos, long numberWord) {
-        int shift = 36 - decimalSepPos;
-        // signed is -1 if negative, 0 otherwise
-        long signed = (~numberWord << 59) >> 63;
-        long designMask = ~(signed & 0xFF);
-        // Align the number to a specific position and transform the ascii to digit value
-        long digits = ((numberWord & designMask) << shift);
-        String string = new String(ByteBuffer.allocate(8).order(ByteOrder.nativeOrder()).putLong(digits).array(), StandardCharsets.UTF_8);
-        string = string.split("\n")[0];
-        return (long) (Double.parseDouble(string) * 100);
+        return 1L; //TODO
     }
 
     private static long findDelimiter(long word) {
@@ -358,7 +250,7 @@ public class Main {
         return (input - 0x0101010101010101L) & ~input & 0x8080808080808080L;
     }
 
-    private static CityResult newCityEntry(CityResult[] cityResults, long nameAddress, int hash, int nameLength, Scanner scanner, List<CityResult> collectedCityResults, MappedByteBuffer mappedByteBuffer) {
+    private static CityResult newCityEntry(CityResult[] cityResults, int nameAddress, int hash, int nameLength, Scanner scanner, List<CityResult> collectedCityResults, MappedByteBuffer mappedByteBuffer) {
         CityResult r = new CityResult();
         cityResults[hash] = r;
         fillResult(nameAddress, nameLength, scanner, r, mappedByteBuffer);
@@ -366,9 +258,10 @@ public class Main {
         return r;
     }
 
-    private static void fillResult(long nameAddress, int nameLength, Scanner scanner, Result r, MappedByteBuffer mappedByteBuffer) {
+    private static void fillResult(int nameAddress, int nameLength, Scanner scanner, Result r, MappedByteBuffer mappedByteBuffer) {
         int totalLength = nameLength + 1;
         r.mappedByteBuffer = mappedByteBuffer;
+        /**
         r.firstNameWord = scanner.getLongAt(nameAddress);
         r.secondNameWord = scanner.getLongAt(nameAddress + 8);
         if (totalLength <= 8) {
@@ -377,10 +270,11 @@ public class Main {
         } else if (totalLength < 16) {
             r.secondNameWord = r.secondNameWord & MASK1[totalLength - 9];
         }
+         **/
         r.nameAddress = nameAddress;
     }
 
-    private static ProductResult newProductEntry(ProductResult[] productResults, long nameAddress, int hash, int nameLength, Scanner scanner, List<ProductResult> collectedCityResults, MappedByteBuffer mappedByteBuffer) {
+    private static ProductResult newProductEntry(ProductResult[] productResults, int nameAddress, int hash, int nameLength, Scanner scanner, List<ProductResult> collectedCityResults, MappedByteBuffer mappedByteBuffer) {
         ProductResult r = new ProductResult();
         productResults[hash] = r;
         fillResult(nameAddress, nameLength, scanner, r, mappedByteBuffer);
@@ -397,8 +291,7 @@ public class Main {
 
     private static abstract class Result {
         MappedByteBuffer mappedByteBuffer;
-        long firstNameWord, secondNameWord;
-        long nameAddress;
+        int nameAddress;
         String name;
 
         public String calcName() {
@@ -422,6 +315,17 @@ public class Main {
         }
 
         abstract void accumulate(Result other);
+    }
+
+    private static final class FindSeparatorResult{
+        private final long hash;
+        private final int nameLength,nameAddress;
+
+        public FindSeparatorResult(long hash, int nameAddress, int nameLength) {
+            this.hash = hash;
+            this.nameAddress = nameAddress;
+            this.nameLength = nameLength;
+        }
     }
 
     private static final class ProductResult extends Result {
@@ -463,10 +367,10 @@ public class Main {
 
     private static final class Scanner {
         private final MappedByteBuffer mappedByteBuffer;
-        private long pos;
-        private final long end;
+        private int pos;
+        private final int end;
 
-        public Scanner(MappedByteBuffer mappedByteBuffer, long start, long end) {
+        public Scanner(MappedByteBuffer mappedByteBuffer, int start, int end) {
             this.mappedByteBuffer = mappedByteBuffer;
             this.pos = start;
             this.end = end;
@@ -476,11 +380,11 @@ public class Main {
             return pos < end;
         }
 
-        long pos() {
+        int pos() {
             return pos;
         }
 
-        void add(long delta) {
+        void addToPos(int delta) {
             pos += delta;
         }
 
@@ -488,25 +392,51 @@ public class Main {
             return getLongAt(pos);
         }
 
-        long getLongAt(long pos) {
+        long getLongAt(int pos) {
             int fileEnd = mappedByteBuffer.limit();
-            long numberOfByteBeforeEnd = fileEnd - pos;//TODO change all to int
+            int numberOfByteBeforeEnd = fileEnd - pos;//TODO change all to int
             if (numberOfByteBeforeEnd <= 0) {
                 return Long.MIN_VALUE;
             }
             if (numberOfByteBeforeEnd >= 8) {
-                return mappedByteBuffer.getLong((int) pos);
+                return mappedByteBuffer.getLong(pos);
             }
-            int length = (int) numberOfByteBeforeEnd;
             byte[] buf = new byte[8];
-            mappedByteBuffer.get((int) pos, buf, 0, length);
+            mappedByteBuffer.get(pos, buf, 0, numberOfByteBeforeEnd);
             ByteBuffer buffer = ByteBuffer.wrap(buf).order(ByteOrder.nativeOrder());
             long longValue = buffer.getLong();
             return longValue;
         }
 
-        byte getByteAt(long pos) {
-            return (byte) mappedByteBuffer.getChar((int) pos);
+        FindSeparatorResult nextSeparator(){
+            //long start = System.nanoTime();
+
+            int nameAddress = pos();
+            int index = nameAddress;
+            int nameLength = 0;
+            byte[] array = new byte[1];
+            while (index < end) {
+                mappedByteBuffer.get(index, array, 0, 1);
+                index +=1;
+                if (array[0] != DELIMEETR_CHAR) {
+                    nameLength++;
+                }else{
+                    break;
+                }
+            }
+            addToPos(nameLength);
+            FindSeparatorResult findSeparatorResult = new FindSeparatorResult(11, nameAddress, nameLength);
+            //long end = System.nanoTime();
+            //System.out.println("end findSeparator = " + (end - start));
+            return findSeparatorResult;
+        }
+
+
+
+        byte getByteAt(int pos) {
+            byte[] bytes = new byte[1];
+            mappedByteBuffer.get(pos,bytes);
+            return bytes[0];
         }
     }
 }
