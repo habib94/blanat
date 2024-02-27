@@ -14,8 +14,8 @@ import java.util.stream.Collectors;
 
 
 public class Main {
-    private static final String FILE = "input_o.txt";
-   //private static final String FILE = "/home/habib/Downloads/input.txt";
+    //private static final String FILE = "input_o.txt";
+   private static final String FILE = "/home/habib/Downloads/input.txt";
     //private static final String FILE = "input_from_git.txt";
     private static final int MIN_TEMP = -999;
     private static final int MAX_TEMP = 99900;
@@ -498,9 +498,11 @@ public class Main {
                 return mappedByteBuffer.getLong((int) pos);
             }
             int length = (int) numberOfByteBeforeEnd;
-            byte[] dst = new byte[length];
-            mappedByteBuffer.get((int) pos, dst, 0, length);
-            return new BigInteger(dst).longValue();
+            byte[] buf = new byte[8];
+            mappedByteBuffer.get((int) pos, buf, 0, length);
+            ByteBuffer buffer = ByteBuffer.wrap(buf).order(ByteOrder.nativeOrder());
+            long longValue = buffer.getLong();
+            return longValue;
         }
 
         byte getByteAt(long pos) {
