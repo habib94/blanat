@@ -1,10 +1,10 @@
-
-
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,26 +14,22 @@ import java.util.stream.Collectors;
 
 
 public class Main {
-    public static final int AVAILABLE_PROCESSORS = (int) (Runtime.getRuntime().availableProcessors() * 1);
-    //private static final String FILE = "input_o.txt";
-    private static final String FILE = "/home/habib/Downloads/input.txt";
-    // private static final String FILE = "input_from_git.txt";
-    private static final int MIN_TEMP = -999;
-    private static final int MAX_TEMP = 99900;
-    private static final int MAX_NAME_LENGTH = 100;
+    public static final int AVAILABLE_PROCESSORS = 16;
+    private static final String FILE = "input.txt";
+    public static final String OUTPUT_FILE = "output.txt";
+
+    private static final int MAX = 99900;
     private static final int MAX_CITIES = 101;
-    private static final int SEGMENT_SIZE = 1 << 21;
     private static final int HASH_TABLE_SIZE = 1 << 17;
     public static final long DELIMITER = 0x2C2C2C2C2C2C2C2CL;
     public static final long NEW_LINE = 0x0A0A0A0A0A0A0A0AL;
     public static final long DOT = 0x2E2E2E2E2E2E2E2EL;
-    public static final char DELIMEETR_CHAR = ',';
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        long start = System.currentTimeMillis();
-        process(args, start);
-        long end = System.currentTimeMillis();
-        System.out.println("end = " + (end - start));
+       // long start = System.currentTimeMillis();
+        process();
+        //long end = System.currentTimeMillis();
+        //System.out.println("end = " + (end - start));
     }
 
     private static List<MappedByteBuffer> buildChunks() throws IOException {
@@ -66,11 +62,9 @@ public class Main {
         return chunks;
     }
 
-    public static void process(String[] args, long start) throws IOException, InterruptedException {
+    public static void process() throws IOException, InterruptedException {
         List<MappedByteBuffer> chunks = buildChunks();
 
-        long end = System.currentTimeMillis();
-        System.out.println("build chanks = " + (end - start) + ";" + chunks.size());
         ExecutorService executorService = Executors.newFixedThreadPool(AVAILABLE_PROCESSORS);
         List<CityResult>[] cityResuls = new List[chunks.size()];
         List<ProductResult>[] productsResuls = new List[chunks.size()];
@@ -87,8 +81,7 @@ public class Main {
 
         executorService.shutdown();
         executorService.awaitTermination(1, TimeUnit.MINUTES);
-        end = System.currentTimeMillis();
-        System.out.println("build chanks = " + (end - start) + ";" + chunks.size());
+
         CityResult minSumCity = Arrays.stream(cityResuls).parallel().flatMap(Collection::stream).collect(Collectors.toMap(
                         Result::calcName,
                         Function.identity(),
@@ -102,7 +95,6 @@ public class Main {
                 .min(Comparator.comparing(entry -> entry.getValue().sum))
                 .get()
                 .getValue();
-        // Final output.
 
         List<ProductResult> min5Products = Arrays.stream(productsResuls).parallel().flatMap(Collection::stream).collect(Collectors.toMap(
                         Result::calcName,
@@ -119,10 +111,20 @@ public class Main {
                 .map(Map.Entry::getValue)
                 .collect(Collectors.toList());
 
-        System.out.println(minSumCity);
-        System.out.println("MIN 5");
-        System.out.println(min5Products);
+        List<String> finalResult = new ArrayList<>();
+        finalResult.add(minSumCity.toString());
+        min5Products.forEach(productResult -> finalResult.add(productResult.toString()));
 
+        writeOutput(finalResult);
+
+    }
+
+    public static void writeOutput(List<String> result) {
+        try {
+            Files.write(Paths.get(OUTPUT_FILE), result.stream().collect(Collectors.joining("\n")).getBytes());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 
@@ -141,7 +143,7 @@ public class Main {
                 cityResult = newCityEntry(cityResults, citySeparatorResult.nameAddress, cityIndex, citySeparatorResult.nameLength, collectedCityResults, mappedByteBuffer);
             }
             FindSeparatorResult productSeparatorResult = Scanner.nextSeparator(mappedByteBuffer);
-            mappedByteBuffer.position(productSeparatorResult.nameAddress + productSeparatorResult.nameLength +1 );
+            mappedByteBuffer.position(productSeparatorResult.nameAddress + productSeparatorResult.nameLength + 1);
             int productIndex = hashToIndex(productSeparatorResult.hash);
             ProductResult productResult = productResults[productIndex];
             if (productResult == null) {
@@ -222,7 +224,7 @@ public class Main {
         int min;
 
         private ProductResult() {
-            this.min = MAX_TEMP;
+            this.min = MAX;
         }
 
         public String toString() {
@@ -267,7 +269,7 @@ public class Main {
             int numberLengthD = mappedByteBuffer.position() - numberAddress - 1;
             mappedByteBuffer.position(numberAddress);
 
-            byte priceD = getNumberFromBytes(mappedByteBuffer,numberLengthD);
+            byte priceD = getNumberFromBytes(mappedByteBuffer, numberLengthD);
 
             numberAddress = mappedByteBuffer.position() + numberLengthD + 1;
             mappedByteBuffer.position(numberAddress);
@@ -279,7 +281,7 @@ public class Main {
             }
             int numberLengthF = mappedByteBuffer.position() - numberAddress - 1;
             mappedByteBuffer.position(numberAddress);
-            byte priceF = getNumberFromBytes(mappedByteBuffer,numberLengthF);
+            byte priceF = getNumberFromBytes(mappedByteBuffer, numberLengthF);
 
             mappedByteBuffer.position(mappedByteBuffer.position() + numberLengthF + 1);
 
@@ -331,16 +333,30 @@ public class Main {
             long result;
             int nameLength = 0;
             while ((result = findDelimiter(read(mappedByteBuffer))) == 0) {
-                nameLength +=8;
+                nameLength += 8;
             }
             int tailingsZeros = Long.numberOfTrailingZeros(result) >>> 3;
             nameLength += tailingsZeros;
-            byte[] dst = new byte[nameLength];
-            mappedByteBuffer.get(nameAddress, dst, 0, nameLength);
-            FindSeparatorResult findSeparatorResult = new FindSeparatorResult(Arrays.hashCode(dst), nameAddress, nameLength);
+            int hash = hash(mappedByteBuffer, nameAddress, nameLength);
+            FindSeparatorResult findSeparatorResult = new FindSeparatorResult(hash, nameAddress, nameLength);
             // long end = System.nanoTime();
             // System.out.println("end findSeparator = " + (end - start));
             return findSeparatorResult;
+        }
+
+        private static final int GOLDEN_RATIO = 0x9E3779B9;
+        private static final int HASH_LROTATE = 5;
+
+        static int hash(MappedByteBuffer mappedByteBuffer, int start, int len) {
+            int x, y;
+            if (len >= Integer.BYTES) {
+                x = mappedByteBuffer.getInt(start);
+                y = mappedByteBuffer.getInt(start + len - Integer.BYTES);
+            } else {
+                x = mappedByteBuffer.get(start) & 0xFF;
+                y = mappedByteBuffer.get(start + len - Byte.BYTES) & 0xFF;
+            }
+            return (Integer.rotateLeft(x * GOLDEN_RATIO, HASH_LROTATE) ^ y) * GOLDEN_RATIO;
         }
 
         private static long read(MappedByteBuffer mappedByteBuffer) {
